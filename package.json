@@ -1,0 +1,38 @@
+{
+  "name": "mergelogga",
+  "description": "Changelog generator using merge requests (or all commits) from Git log.",
+  "version": "0.1.0",
+  "authors": [
+    {
+      "name": "Anton Bondar",
+      "email": "anton@zebooka.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/zebooka/mergelogga.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zebooka/mergelogga/issues"
+  },
+  "license": "MIT",
+  "bin": {
+    "mergelogga": "bin/mergelogga.js"
+  },
+  "dependencies": {
+    "async": "1.4.x",
+    "commander": "2.8.x",
+    "lodash": "3.10.x",
+    "remove-markdown": "0.x"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "mergelogga",
+    "merge",
+    "merge requests",
+    "changelog",
+    "git",
+    "log",
+    "history"
+  ]
+}
