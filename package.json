@@ -1,7 +1,7 @@
 {
   "name": "mergelogga",
   "description": "Changelog generator using merge requests (or all commits) from Git log.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "authors": [
     {
       "name": "Anton Bondar",

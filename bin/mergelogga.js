@@ -12,7 +12,7 @@ var _ = require('lodash'),
 
 console.log('MERGELOGGA');
 
-program.version('0.1.0')
+program.version('0.1.1')
     .description('Generate changelog from merge requests in Git history of current repository and prepend it to specified file.')
     .option('-b, --branch [refname]', 'Branch to generate changelog.', '')
     .option('-a, --all', 'Use all commits, not only merge requests.')
@@ -48,7 +48,7 @@ function readChangelogFile(callback) {
     fs.stat(changelogFile, function (error, stat) {
         if (stat) {
             fs.readFile(changelogFile, {encoding: 'utf8'}, function (error, data) {
-                callback(error, data.toString());
+                callback(error, data ? data.toString() : '');
             });
         } else {
             callback(null, '');
