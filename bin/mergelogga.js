@@ -12,7 +12,7 @@ var _ = require('lodash'),
 
 console.log('MERGELOGGA');
 
-program.version('0.1.1')
+program.version('0.1.2')
     .description('Generate changelog from merge requests in Git history of current repository and prepend it to specified file.')
     .option('-b, --branch [refname]', 'Branch to generate changelog.', '')
     .option('-a, --all', 'Use all commits, not only merge requests.')
@@ -48,9 +48,11 @@ function readChangelogFile(callback) {
     fs.stat(changelogFile, function (error, stat) {
         if (stat) {
             fs.readFile(changelogFile, {encoding: 'utf8'}, function (error, data) {
+                if (error) console.log('ERROR: Unable to read changelog file.');
                 callback(error, data ? data.toString() : '');
             });
         } else {
+            console.log('No changelog file.');
             callback(null, '');
         }
     });
@@ -60,7 +62,7 @@ function getLastVersionFromChangelog(changelog, callback) {
     if (overwriteChangelog || !changelog) {
         callback(null);
     } else {
-        _.forEach(changelog.split(/(?:\r?\n)/g), function (line) {
+        _.forEach(changelog.split(/\r?\n/g), function (line) {
             if (!untilVersion && line.match(versionRegExp)) {
                 untilVersion = line;
                 console.log('Last version in changelog file is: ' + untilVersion);
@@ -79,20 +81,15 @@ function getLastVersionFromChangelog(changelog, callback) {
     }
 }
 
-function getTagVersion(refNames) {
-    var versions = (refNames ? refNames.split(/\s*,\s*/) : []);
-    return _.reduce(versions, function (tag, version) {
-        var matches = version.match(/tag:[\s]+v?(.*)/i);
-        if (matches && !tag && matches[1].match(versionRegExp)) {
-            tag = matches[1];
-        }
-        return tag;
-    }, undefined);
+function getTagVersion(refNamesString) {
+    return refNamesString ? _.first(_.filter(_.map(refNamesString.match(/tag\:\s*[^,)\s]+/g) || [], function (t) {
+        return (t.match(/^tag\:\s*v?(\d+\.\d+(\.\d+(\.\d+)?)?)/) || [])[1];
+    }))) : undefined;
 }
 
 function getVersionsWithCommits(callback) {
-    var args = ['log', '--pretty=tformat:%h %p#%D'],
-        process,
+    var args = ['log', '--pretty=tformat:%h %p#%d'],
+        git,
         versionsWithCommits = [],
         currentCommits = [],
         currentVersion = startVersion,
@@ -102,17 +99,17 @@ function getVersionsWithCommits(callback) {
         args.push(branch)
     }
 
-    console.log('Parsing git history...');
+    console.log('Extracting versions...');
     if (currentVersion) {
-        console.log('START VERSION: ' + currentVersion);
+        console.log('Start version: ' + currentVersion);
     }
-    process = child_process.spawn('git', args);
-    process.stdout.setEncoding('utf8');
-    process.stdout.on('data', function (data) {
+    git = child_process.spawn('git', args);
+    git.stdout.setEncoding('utf8');
+    git.stdout.on('data', function (data) {
         if (processKilled) {
             return;
         }
-        _.forEach(data.toString().split(/(?:\r?\n)/g), function (line) {
+        _.forEach(data.toString().split(/\r?\n/g), function (line) {
             var parts, hashes, version;
             line = _.trim(line);
             parts = line.split('#');
@@ -120,9 +117,9 @@ function getVersionsWithCommits(callback) {
             version = getTagVersion(parts[1]);
             if (version) {
                 if (version === untilVersion) {
-                    console.log('Reached last version ' + version + ' from changelog file.');
+                    console.log('\u001b[0K' + 'Reached last version ' + version + ' from changelog file.');
                     processKilled = true;
-                    process.kill();
+                    git.kill();
                     return false;
                 }
                 if (currentVersion) {
@@ -133,17 +130,18 @@ function getVersionsWithCommits(callback) {
                 }
                 currentCommits = [];
                 currentVersion = version;
-                console.log('VERSION: ' + currentVersion);
+                console.log('\u001b[0K' + ' * ' + currentVersion);
             }
             if (hashes[0].length && (allCommits || hashes.length > 2)) {
-                console.log(' * ' + hashes[0]);
+                process.stdout.write('\u001b[0K' + ' * ' + currentVersion + ' -> ' + hashes[0] + '\u001b[0G');
                 currentCommits.push(hashes[0]);
             }
         });
 
     });
 
-    process.on('close', function (code) {
+    git.on('close', function (code) {
+        process.stdout.write('\u001b[0K\u001b[0G');
         if (code) {
             callback('Unable to get merge commits. Git errored with code #' + code);
         } else {
@@ -159,13 +157,13 @@ function getVersionsWithCommits(callback) {
 }
 
 function getMessageForCommit(hash, callback) {
-    var process = child_process.spawn('git', ['show', '-s', '--pretty=tformat:%B', hash]),
+    var git = child_process.spawn('git', ['show', '-s', '--pretty=tformat:%s%n%b', hash]),
         message = [],
         isMergeRequest = false,
         foundConflict = false;
-    process.stdout.setEncoding('utf8');
-    process.stdout.on('data', function (data) {
-        var lines = data.toString().split(/(?:\r?\n)/g);
+    git.stdout.setEncoding('utf8');
+    git.stdout.on('data', function (data) {
+        var lines = data.toString().split(/\r?\n/g);
         lines = _.reduce(lines, function (filtered, line) {
             line = _.trim(line);
 
@@ -189,7 +187,7 @@ function getMessageForCommit(hash, callback) {
         }, []);
         message = message.concat(lines);
     });
-    process.on('close', function (code) {
+    git.on('close', function (code) {
         if (code) {
             callback('Unable to get commit message. Git errored with code #' + code);
         } else {
@@ -207,11 +205,15 @@ function getMessagesForListOfCommits(commits, callback) {
     _.forEach(commits, function (hash) {
         tasks.push(function (callback) {
             getMessageForCommit(hash, function (error, message, isMergeRequest) {
+                if (message) process.stdout.write('\u001b[0K' + ' * ' + _.trunc((message || '').split(/\r?\n/g)[0], 70) + '\u001b[0G');
                 callback(error, (allCommits || isMergeRequest) ? removeMd(message) : '');
             });
         });
     });
-    async.parallelLimit(tasks, 4, callback);
+    async.parallelLimit(tasks, 4, function (error, results) {
+        process.stdout.write('\u001b[0K\u001b[0G');
+        callback(error, results);
+    });
 }
 
 function filterEmptyMessages(messages) {
@@ -220,10 +222,11 @@ function filterEmptyMessages(messages) {
 
 function getMessagesForVersions(versionsWithCommits, callback) {
     var tasks = [];
+    console.log('Processing commit messages...');
     _.forEach(versionsWithCommits, function (versionWithCommits) {
         tasks.push(function (callback) {
             getMessagesForListOfCommits(versionWithCommits.commits, function (error, messages) {
-                console.log('Processing version ' + versionWithCommits.version);
+                console.log(' * ' + versionWithCommits.version);
                 callback(error, {
                     version: versionWithCommits.version,
                     messages: filterEmptyMessages(messages)
